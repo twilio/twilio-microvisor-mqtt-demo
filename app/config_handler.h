@@ -16,6 +16,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "azure_helper.h"
+
 
 /*
  * MACROS
@@ -30,10 +32,6 @@
 #define TAG_CHANNEL_CONFIG 100
 
 #define BUF_CLIENT_SIZE 34
-#define BUF_BROKER_HOST 128
-#define BUF_ROOT_CA 1024
-#define BUF_CERT 1024
-#define BUF_PRIVATE_KEY 1536
 
 #define BUF_READ_BUFFER 3*1024
 
@@ -57,15 +55,7 @@ void finish_configuration_fetch();
 extern uint8_t  client[BUF_CLIENT_SIZE];
 extern size_t   client_len;
 
-extern uint8_t  broker_host[BUF_BROKER_HOST];
-extern size_t   broker_host_len;
-extern uint16_t broker_port;
-extern uint8_t  root_ca[BUF_ROOT_CA];
-extern size_t   root_ca_len;
-extern uint8_t  cert[BUF_CERT];
-extern size_t   cert_len;
-extern uint8_t  private_key[BUF_PRIVATE_KEY];
-extern size_t   private_key_len;
+extern struct AzureConnectionStringParams azure_params;
 
 
 #ifdef __cplusplus

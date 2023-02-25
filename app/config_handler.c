@@ -23,27 +23,9 @@
 uint8_t  client[BUF_CLIENT_SIZE];
 size_t   client_len;
 
-uint8_t  broker_host[BUF_BROKER_HOST] = {0};
-size_t   broker_host_len = 0;
-uint16_t broker_port = 0;
-uint8_t  root_ca[BUF_ROOT_CA] = {0};
-size_t   root_ca_len = 0;
-uint8_t  cert[BUF_CERT] = {0};
-size_t   cert_len = 0;
-uint8_t  private_key[BUF_PRIVATE_KEY] = {0};
-size_t   private_key_len = 0;
+struct AzureConnectionStringParams azure_params = { 0 };
 
 static MvChannelHandle configuration_channel = 0;
-
-/**
- * FORWARD DECLARATIONS
- */
-static bool consume_binary_config_value(
-        MvChannelHandle *configuration_channel,
-        struct MvConfigResponseReadItemParams *item,
-        uint8_t *destination,
-        size_t destination_size,
-        size_t *destination_len);
 
 /**
  * CONFIGURATION OPERATIONS
@@ -82,28 +64,8 @@ void start_configuration_fetch() {
     struct MvConfigKeyToFetch items[] = {
         {
             .scope = MV_CONFIGKEYFETCHSCOPE_DEVICE,
-            .store = MV_CONFIGKEYFETCHSTORE_CONFIG,
-            STRING_ITEM(key, "broker-host"),
-        },
-        {
-            .scope = MV_CONFIGKEYFETCHSCOPE_DEVICE,
-            .store = MV_CONFIGKEYFETCHSTORE_CONFIG,
-            STRING_ITEM(key, "broker-port"),
-        },
-        {
-            .scope = MV_CONFIGKEYFETCHSCOPE_DEVICE,
-            .store = MV_CONFIGKEYFETCHSTORE_CONFIG,
-            STRING_ITEM(key, "root-CA"),
-        },
-        {
-            .scope = MV_CONFIGKEYFETCHSCOPE_DEVICE,
-            .store = MV_CONFIGKEYFETCHSTORE_CONFIG,
-            STRING_ITEM(key, "cert"),
-        },
-        {
-            .scope = MV_CONFIGKEYFETCHSCOPE_DEVICE,
             .store = MV_CONFIGKEYFETCHSTORE_SECRET,
-            STRING_ITEM(key, "private_key"),
+            STRING_ITEM(key, "azure-connection-string"),
         },
     };
 
@@ -139,8 +101,8 @@ void receive_configuration_items() {
         return;
     }
 
-    if (response.num_items != 5) {
-        server_error("received different number of items than expected 5 != %d", response.num_items);
+    if (response.num_items != 1) {
+        server_error("received different number of items than expected 1 != %d", response.num_items);
         pushWorkMessage(OnConfigFailed);
         return;
     }
@@ -155,8 +117,10 @@ void receive_configuration_items() {
             .length = &read_buffer_used
         }
     };
-    bool consume_binary_success=false;
 
+
+    uint8_t  azure_connection_string[256] = {0};
+    size_t   azure_connection_string_len = 0;
 
     item.item_index = 0;
     server_log("fetching item %d", item.item_index);
@@ -170,95 +134,20 @@ void receive_configuration_items() {
         pushWorkMessage(OnConfigFailed);
         return;
     }
-    memcpy(broker_host, read_buffer, read_buffer_used);
-    broker_host_len = read_buffer_used;
-    server_log("broker_host: %.*s", broker_host_len, broker_host);
+    memcpy(azure_connection_string, read_buffer, read_buffer_used);
+    azure_connection_string_len = read_buffer_used;
+    azure_connection_string[azure_connection_string_len] = '\0'; // treat as char* for tokenizing
 
-
-    item.item_index = 1;
-    server_log("fetching item %d", item.item_index);
-    if ((status = mvReadConfigResponseItem(configuration_channel, &item)) != MV_STATUS_OKAY) {
-        server_error("error reading config item index %d - %d", item.item_index, status);
+    if (!parse_azure_connection_string(
+            azure_connection_string, azure_connection_string_len,
+            &azure_params)) {
+        server_error("failed to parse azure connection string");
         pushWorkMessage(OnConfigFailed);
         return;
     }
-    if (result != MV_CONFIGKEYFETCHRESULT_OK) {
-        server_error("unexpected result reading config item index %d - %d", item.item_index, result);
-        pushWorkMessage(OnConfigFailed);
-        return;
-    }
-    read_buffer[read_buffer_used] = '\0';
-    broker_port = strtol((const char *)read_buffer, NULL, 10);
-    server_log("broker_port: %d (uint16_t)", broker_port);
-
-
-    item.item_index = 2;
-    consume_binary_success = consume_binary_config_value( &configuration_channel, &item, root_ca, BUF_ROOT_CA, &root_ca_len);
-    if (!consume_binary_success) {
-        pushWorkMessage(OnConfigFailed);
-        return;
-    }
-    server_log("root_ca[%d] = 0x%02x", root_ca_len-1, root_ca[root_ca_len-1]);
-
-
-    item.item_index = 3;
-    consume_binary_success = consume_binary_config_value( &configuration_channel, &item, cert, BUF_CERT, &cert_len);
-    if (!consume_binary_success) {
-        pushWorkMessage(OnConfigFailed);
-        return;
-    }
-    server_log("cert[%d] = 0x%02x", cert_len-1, cert[cert_len-1]);
-
-    item.item_index = 4;
-    consume_binary_success = consume_binary_config_value( &configuration_channel, &item, private_key, BUF_PRIVATE_KEY, &private_key_len);
-    if (!consume_binary_success) {
-        pushWorkMessage(OnConfigFailed);
-        return;
-    }
-    server_log("private_key[%d] = 0x%02x", private_key_len-1, private_key[private_key_len-1]);
 
 
     pushWorkMessage(OnConfigObtained);
-}
-
-bool consume_binary_config_value(
-        MvChannelHandle *configuration_channel,
-        struct MvConfigResponseReadItemParams *item,
-        uint8_t *destination,
-        size_t destination_size,
-        size_t *destination_len
-        ) {
-    enum MvStatus status;
-
-    if ((status = mvReadConfigResponseItem(*configuration_channel, item)) != MV_STATUS_OKAY) {
-        server_error("error reading config item index %d - %d", item->item_index, status);
-        return false;
-    }
-    if (*(item->result) != MV_CONFIGKEYFETCHRESULT_OK) {
-        server_error("unexpected result reading config item index %d - %d", item->item_index, *(item->result));
-        return false;
-    }
-    if (*(item->buf.length) / 2 > destination_size) {
-        server_error("target buffer (%d) insufficient for read data (%d)", destination_size, *(item->buf.length)/2);
-        return false;
-    }
-    *destination_len = 0;
-    for (int ndx=0; ndx < *(item->buf.length); ndx+=2) {
-        uint8_t val = 0;
-
-        for (int n=0; n<2; n++) {
-            char byte = item->buf.data[ndx+n];
-            if (byte >= '0' && byte <= '9') byte = byte - '0';
-            else if (byte >= 'a' && byte <= 'f') byte = byte - 'a' + 10;
-            else if (byte >= 'A' && byte <= 'F') byte = byte - 'A' + 10;
-            val = (val << 4) | (byte & 0xf);
-        }
-
-        destination[*destination_len] = val;
-        *destination_len = *destination_len + 1;
-    }
-
-    return true;
 }
 
 void finish_configuration_fetch() {

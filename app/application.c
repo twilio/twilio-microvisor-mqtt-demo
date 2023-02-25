@@ -141,9 +141,9 @@ void application_poll() {
 
 void application_process_message(const uint8_t* topic, size_t topic_len,
                                  const uint8_t* payload, size_t payload_len) {
-    // server_log("Got a message on topic '%.*s' with payload '%.*s",
-    //            (int) topic_len, topic,
-    //            (int) payload_len, payload);
+    // server_log("Got a message on topic '%.*s' with payload '%.*s'",
+    //         (int) topic_len, topic,
+    //         (int) payload_len, payload);
     if (strncmp("stop", (char*) payload, payload_len) == 0) {
         application_running = false;
     }
